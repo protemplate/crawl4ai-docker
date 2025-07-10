@@ -56,6 +56,7 @@ on:
 
 env:
   REGISTRY: docker.io
+  # Note: DOCKER_USERNAME should be set as a repository secret
   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/crawl4ai
   PLATFORMS: linux/amd64,linux/arm64
   CACHE_REGISTRY: ${{ secrets.DOCKER_USERNAME }}/crawl4ai-cache
@@ -355,16 +356,20 @@ jobs:
         fi
 
     - name: Notify via webhook (optional)
-      if: secrets.WEBHOOK_URL != ''
+      if: always()
       run: |
         # Send notification to webhook if configured
-        curl -X POST ${{ secrets.WEBHOOK_URL }} \
-          -H "Content-Type: application/json" \
-          -d '{
-            "event": "crawl4ai-build",
-            "status": "${{ needs.test-image.result }}",
-            "version": "${{ needs.check-updates.outputs.crawl4ai_version }}",
-            "sha": "${{ needs.check-updates.outputs.crawl4ai_sha }}",
-            "repository": "${{ github.repository }}",
-            "run_id": "${{ github.run_id }}"
-          }'
+        if [ -n "${{ secrets.WEBHOOK_URL }}" ]; then
+          curl -X POST ${{ secrets.WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d '{
+              "event": "crawl4ai-build",
+              "status": "${{ needs.test-image.result }}",
+              "version": "${{ needs.check-updates.outputs.crawl4ai_version }}",
+              "sha": "${{ needs.check-updates.outputs.crawl4ai_sha }}",
+              "repository": "${{ github.repository }}",
+              "run_id": "${{ github.run_id }}"
+            }'
+        else
+          echo "WEBHOOK_URL not configured, skipping notification"
+        fi
