@@ -159,13 +159,18 @@ trap shutdown SIGTERM SIGINT\n\
 echo "Python version:"\n\
 python --version\n\
 echo "Installed packages:"\n\
-pip list | grep -E "(crawl4ai|playwright|uvicorn|fastapi)" || echo "No matching packages found"\n\
+pip list | grep -iE "(crawl|playwright|uvicorn|fastapi)" || echo "No matching packages found"\n\
+echo "All packages (first 20):"\n\
+pip list | head -20\n\
 echo "Environment variables:"\n\
 env | grep -E "(PATH|PYTHONPATH|APP_HOME)" | sort\n\
 echo "Checking crawl4ai installation:"\n\
-python -c "import crawl4ai; print(f\"Crawl4ai version: {crawl4ai.__version__ if hasattr(crawl4ai, \"__version__\") else \"unknown\"}\")"\n\
+echo "App directory contents:"\n\
+ls -la ${APP_HOME}/ | head -10\n\
+echo "Trying to import crawl4ai:"\n\
+python -c "try: import crawl4ai; print(\"SUCCESS: Crawl4ai imported\"); print(\"Version:\", getattr(crawl4ai, \"__version__\", \"unknown\"))\nexcept Exception as e: print(\"FAILED:\", str(e))"\n\
 echo "Available crawl4ai modules:"\n\
-python -c "import crawl4ai, pkgutil; print([name for _, name, _ in pkgutil.iter_modules(crawl4ai.__path__)])"\n\
+python -c "try: import crawl4ai, pkgutil; print([name for _, name, _ in pkgutil.iter_modules(crawl4ai.__path__)])\nexcept Exception as e: print(\"FAILED:\", str(e))"\n\
 \n\
 # Start the server\n\
 echo "Starting Crawl4AI server on port 11235..."\n\
