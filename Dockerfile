@@ -43,6 +43,9 @@ RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
         uvicorn[standard] \
         httpx \
         pydantic-settings \
+        fastapi \
+        python-multipart \
+        aiofiles \
     && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/venv -name "*.pyc" -delete 2>/dev/null || true
 
@@ -107,6 +110,16 @@ COPY --from=builder /opt/venv /opt/venv
 # Copy Crawl4AI source code from builder
 COPY --from=builder /tmp/crawl4ai ${APP_HOME}
 
+# Check if deploy/docker/server exists and copy it to the right location
+RUN if [ -d "${APP_HOME}/deploy/docker/server" ]; then \
+        echo "Found server files in deploy/docker/server"; \
+        cp -r ${APP_HOME}/deploy/docker/server/* ${APP_HOME}/crawl4ai/ 2>/dev/null || true; \
+    fi \
+    && if [ -f "${APP_HOME}/deploy/docker/main.py" ]; then \
+        echo "Found main.py in deploy/docker"; \
+        cp ${APP_HOME}/deploy/docker/main.py ${APP_HOME}/crawl4ai/server.py 2>/dev/null || true; \
+    fi
+
 # Install Playwright browsers with proper permissions
 RUN npx --yes playwright@latest install chromium \
     && npx --yes playwright@latest install-deps chromium \
@@ -146,13 +159,45 @@ trap shutdown SIGTERM SIGINT\n\
 echo "Python version:"\n\
 python --version\n\
 echo "Installed packages:"\n\
-pip list | grep -E "(crawl4ai|playwright|uvicorn|fastapi)"\n\
+pip list | grep -E "(crawl4ai|playwright|uvicorn|fastapi)" || echo "No matching packages found"\n\
 echo "Environment variables:"\n\
 env | grep -E "(PATH|PYTHONPATH|APP_HOME)" | sort\n\
+echo "Checking crawl4ai installation:"\n\
+python -c "import crawl4ai; print(f\"Crawl4ai version: {crawl4ai.__version__ if hasattr(crawl4ai, \"__version__\") else \"unknown\"}\")"\n\
+echo "Available crawl4ai modules:"\n\
+python -c "import crawl4ai, pkgutil; print([name for _, name, _ in pkgutil.iter_modules(crawl4ai.__path__)])"\n\
 \n\
 # Start the server\n\
 echo "Starting Crawl4AI server on port 11235..."\n\
-python -m crawl4ai.server 2>&1 &\n\
+# Try different ways to start the server\n\
+if python -c "import crawl4ai.server" 2>/dev/null; then\n\
+    echo "Using crawl4ai.server module"\n\
+    python -m crawl4ai.server 2>&1 &\n\
+elif python -c "import crawl4ai.api_server" 2>/dev/null; then\n\
+    echo "Using crawl4ai.api_server module"\n\
+    python -m crawl4ai.api_server 2>&1 &\n\
+elif [ -f "${APP_HOME}/crawl4ai/server.py" ]; then\n\
+    echo "Using server.py file directly"\n\
+    cd ${APP_HOME} && python -m crawl4ai.server 2>&1 &\n\
+elif [ -f "${APP_HOME}/deploy/docker/main.py" ]; then\n\
+    echo "Using deploy/docker/main.py"\n\
+    cd ${APP_HOME} && python deploy/docker/main.py 2>&1 &\n\
+elif [ -f "${APP_HOME}/main.py" ]; then\n\
+    echo "Using main.py in APP_HOME"\n\
+    cd ${APP_HOME} && python main.py 2>&1 &\n\
+elif which crawl4ai-server 2>/dev/null; then\n\
+    echo "Using crawl4ai-server command"\n\
+    crawl4ai-server 2>&1 &\n\
+else\n\
+    echo "ERROR: Could not find a way to start the Crawl4AI server"\n\
+    echo "Directory contents:"\n\
+    ls -la ${APP_HOME}/\n\
+    echo "Crawl4ai module contents:"\n\
+    ls -la ${APP_HOME}/crawl4ai/ 2>/dev/null || echo "No crawl4ai directory"\n\
+    echo "Deploy directory contents:"\n\
+    ls -la ${APP_HOME}/deploy/ 2>/dev/null || echo "No deploy directory"\n\
+    exit 1\n\
+fi\n\
 SERVER_PID=$!\n\
 \n\
 # Wait for server to be ready\n\
