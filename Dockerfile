@@ -142,17 +142,37 @@ shutdown() {\n\
 # Trap signals\n\
 trap shutdown SIGTERM SIGINT\n\
 \n\
+# Debug information\n\
+echo "Python version:"\n\
+python --version\n\
+echo "Installed packages:"\n\
+pip list | grep -E "(crawl4ai|playwright|uvicorn|fastapi)"\n\
+echo "Environment variables:"\n\
+env | grep -E "(PATH|PYTHONPATH|APP_HOME)" | sort\n\
+\n\
 # Start the server\n\
 echo "Starting Crawl4AI server on port 11235..."\n\
-python -m crawl4ai.server &\n\
+python -m crawl4ai.server 2>&1 &\n\
 SERVER_PID=$!\n\
 \n\
 # Wait for server to be ready\n\
 echo "Waiting for server to be ready..."\n\
+ATTEMPTS=0\n\
+MAX_ATTEMPTS=120\n\
 while ! curl -f -s http://localhost:11235/health > /dev/null; do\n\
+    ATTEMPTS=$((ATTEMPTS + 1))\n\
+    if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then\n\
+        echo "Server failed to start after $MAX_ATTEMPTS attempts"\n\
+        echo "Server process status:"\n\
+        ps aux | grep -E "(python|crawl4ai)" || true\n\
+        exit 1\n\
+    fi\n\
+    if [ $((ATTEMPTS % 10)) -eq 0 ]; then\n\
+        echo "Still waiting... (attempt $ATTEMPTS/$MAX_ATTEMPTS)"\n\
+    fi\n\
     sleep 1\n\
 done\n\
-echo "Server is ready!"\n\
+echo "Server is ready after $ATTEMPTS seconds!"\n\
 \n\
 # Keep the script running\n\
 wait "$SERVER_PID"\n\
@@ -165,7 +185,7 @@ USER appuser
 EXPOSE 11235
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
     CMD curl -f http://localhost:11235/health || exit 1
 
 # Volume for persistent data

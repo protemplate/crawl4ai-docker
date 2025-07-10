@@ -272,14 +272,23 @@ jobs:
         # Test server startup
         docker run -d --name test-crawl4ai -p 11235:11235 ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }}
         
+        # Get container logs for debugging
+        sleep 5
+        echo "Container logs:"
+        docker logs test-crawl4ai
+        
         # Wait for server to be ready
         echo "Waiting for server to start..."
-        for i in {1..60}; do
+        for i in {1..120}; do
           if curl -f -s http://localhost:11235/health; then
             echo "Server is ready!"
             break
           fi
-          echo "Attempt $i/60..."
+          echo "Attempt $i/120..."
+          if [ $((i % 10)) -eq 0 ]; then
+            echo "Recent container logs:"
+            docker logs --tail 20 test-crawl4ai
+          fi
           sleep 2
         done
         
