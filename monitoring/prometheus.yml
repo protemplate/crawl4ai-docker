@@ -1,0 +1,36 @@
+# Prometheus configuration for monitoring Crawl4AI
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'crawl4ai-monitor'
+
+scrape_configs:
+  # Crawl4AI metrics
+  - job_name: 'crawl4ai'
+    static_configs:
+      - targets: ['crawl4ai:11235']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # Docker daemon metrics (optional)
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+
+  # Node exporter for host metrics (optional)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+
+# Alerting rules
+rule_files:
+  - '/etc/prometheus/alerts/*.yml'
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+          # - 'alertmanager:9093'

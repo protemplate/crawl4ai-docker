@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  crawl4ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        INSTALL_TYPE: ${INSTALL_TYPE:-all}
+        ENABLE_GPU: ${ENABLE_GPU:-false}
+        GITHUB_BRANCH: ${GITHUB_BRANCH:-main}
+      cache_from:
+        - ${DOCKER_USERNAME:-protemplate}/crawl4ai:buildcache
+    image: ${DOCKER_USERNAME:-protemplate}/crawl4ai:${TAG:-latest}
+    container_name: crawl4ai-custom
+    ports:
+      - "${CRAWL4AI_PORT:-11235}:11235"
+    environment:
+      # LLM API Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - GEMINI_API_TOKEN=${GEMINI_API_TOKEN:-}
+      # Application settings
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=${WORKERS:-4}
+      - MAX_REQUESTS=${MAX_REQUESTS:-1000}
+      - TIMEOUT=${TIMEOUT:-300}
+      # Performance settings
+      - CONCURRENT_REQUESTS=${CONCURRENT_REQUESTS:-10}
+      - CACHE_ENABLED=${CACHE_ENABLED:-true}
+      - CACHE_TTL=${CACHE_TTL:-3600}
+    env_file:
+      - path: .llm.env
+        required: false
+    volumes:
+      # Shared memory for Chrome
+      - /dev/shm:/dev/shm
+      # Persistent data volumes
+      - crawl4ai_data:/app/data
+      - crawl4ai_logs:/app/logs
+      - crawl4ai_cache:/app/cache
+      # Custom config override (optional)
+      - ./config.yml:/app/config.yml:ro
+    deploy:
+      resources:
+        limits:
+          memory: ${MEMORY_LIMIT:-4G}
+          cpus: '${CPU_LIMIT:-2.0}'
+        reservations:
+          memory: ${MEMORY_RESERVATION:-1G}
+          cpus: '${CPU_RESERVATION:-0.5}'
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - crawl4ai_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - "com.crawl4ai.description=Custom Crawl4AI Service"
+      - "com.crawl4ai.version=${TAG:-latest}"
+      - "com.crawl4ai.install_type=${INSTALL_TYPE:-all}"
+
+  # Optional: Redis for caching (uncomment to enable)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: crawl4ai-redis
+  #   command: redis-server --appendonly yes --maxmemory ${REDIS_MAXMEMORY:-512mb} --maxmemory-policy allkeys-lru
+  #   volumes:
+  #     - redis_data:/data
+  #   ports:
+  #     - "${REDIS_PORT:-6379}:6379"
+  #   networks:
+  #     - crawl4ai_network
+  #   restart: unless-stopped
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: ${REDIS_MEMORY_LIMIT:-1G}
+  #       reservations:
+  #         memory: ${REDIS_MEMORY_RESERVATION:-256M}
+
+  # Optional: Monitoring with Prometheus (uncomment to enable)
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: crawl4ai-prometheus
+  #   command:
+  #     - '--config.file=/etc/prometheus/prometheus.yml'
+  #     - '--storage.tsdb.path=/prometheus'
+  #     - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+  #     - '--web.console.templates=/usr/share/prometheus/consoles'
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #     - prometheus_data:/prometheus
+  #   ports:
+  #     - "${PROMETHEUS_PORT:-9090}:9090"
+  #   networks:
+  #     - crawl4ai_network
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - crawl4ai
+
+networks:
+  crawl4ai_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+volumes:
+  crawl4ai_data:
+    driver: local
+  crawl4ai_logs:
+    driver: local
+  crawl4ai_cache:
+    driver: local
+  # redis_data:
+  #   driver: local
+  # prometheus_data:
+  #   driver: local

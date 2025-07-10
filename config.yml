@@ -1,0 +1,262 @@
+# Custom Crawl4AI Configuration
+# This file can be mounted to override default settings
+
+app:
+  title: "Custom Crawl4AI API"
+  description: "Advanced web crawling and content extraction API"
+  version: "1.0.0"
+  host: "0.0.0.0"
+  port: 11235
+  reload: false
+  workers: 4
+  timeout_keep_alive: 300
+  access_log: true
+  use_colors: true
+  server_header: false
+  date_header: true
+
+cors:
+  enabled: true
+  allow_origins: ["*"]
+  allow_methods: ["*"]
+  allow_headers: ["*"]
+  allow_credentials: false
+  max_age: 600
+
+llm:
+  default_provider: "openai/gpt-4o-mini"
+  temperature: 0.2
+  max_tokens: 8192
+  timeout: 300
+  retry_attempts: 3
+  retry_delay: 1.0
+
+providers:
+  openai:
+    api_key_env: "OPENAI_API_KEY"
+    organization_env: "OPENAI_ORGANIZATION"
+    base_url_env: "OPENAI_API_BASE"
+  anthropic:
+    api_key_env: "ANTHROPIC_API_KEY"
+    base_url_env: "ANTHROPIC_API_BASE"
+  groq:
+    api_key_env: "GROQ_API_KEY"
+    base_url_env: "GROQ_API_BASE"
+  deepseek:
+    api_key_env: "DEEPSEEK_API_KEY"
+    base_url_env: "DEEPSEEK_API_BASE"
+  together:
+    api_key_env: "TOGETHER_API_KEY"
+    base_url_env: "TOGETHER_API_BASE"
+  mistral:
+    api_key_env: "MISTRAL_API_KEY"
+    base_url_env: "MISTRAL_API_BASE"
+  gemini:
+    api_key_env: "GEMINI_API_TOKEN"
+    base_url_env: "GEMINI_API_BASE"
+
+redis:
+  enabled: false
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: ""
+  socket_timeout: 5
+  connection_pool_kwargs:
+    max_connections: 50
+    retry_on_timeout: true
+
+cache:
+  enabled: true
+  backend: "memory"  # Options: memory, redis, disk
+  ttl: 3600
+  max_size: 1000
+  eviction_policy: "lru"
+  compression: true
+  disk_path: "/app/cache"
+
+rate_limiting:
+  enabled: true
+  default_limit: "1000/hour"
+  burst_limit: "100/minute"
+  storage_uri: "memory://"
+  key_prefix: "crawl4ai"
+  headers_enabled: true
+  strategy: "fixed-window"
+  trusted_proxies: []
+
+security:
+  enabled: true
+  api_key_header: "X-API-Key"
+  api_key_query: "api_key"
+  jwt_enabled: false
+  jwt_secret_env: "JWT_SECRET"
+  jwt_algorithm: "HS256"
+  jwt_expiry: 3600
+  https_redirect: false
+  trusted_hosts: ["*"]
+  allowed_ips: []
+  blocked_ips: []
+
+crawler:
+  default_timeout: 30.0
+  default_wait: 0
+  default_headless: true
+  default_browser: "chromium"
+  viewport_width: 1920
+  viewport_height: 1080
+  user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+  memory_threshold_percent: 95.0
+  max_concurrent_crawls: 10
+  browser_pool_size: 5
+  browser_idle_timeout: 300
+  retry_attempts: 3
+  retry_delay: 1.0
+  screenshot_quality: 85
+  pdf_options:
+    format: "A4"
+    print_background: true
+    margin:
+      top: "1cm"
+      right: "1cm"
+      bottom: "1cm"
+      left: "1cm"
+
+extraction:
+  default_method: "llm"  # Options: llm, css, xpath, regex
+  chunk_size: 4000
+  chunk_overlap: 200
+  min_content_length: 100
+  remove_scripts: true
+  remove_styles: true
+  clean_whitespace: true
+  preserve_links: true
+  markdown_options:
+    heading_style: "atx"
+    bullet_char: "-"
+    code_language: "python"
+    fence_char: "`"
+
+rate_limiter:
+  enabled: true
+  base_delay: [1.0, 3.0]
+  max_delay: 60.0
+  max_retries: 5
+  backoff_factor: 2.0
+  respect_robots_txt: true
+  concurrent_requests_per_domain: 5
+
+timeouts:
+  page_load: 30.0
+  network_idle: 2.0
+  script_execution: 10.0
+  element_wait: 10.0
+  screenshot: 10.0
+  pdf_generation: 30.0
+  stream_init: 30.0
+  batch_process: 300.0
+  total_request: 600.0
+
+storage:
+  type: "local"  # Options: local, s3, gcs
+  local_path: "/app/data"
+  temp_path: "/tmp/crawl4ai"
+  max_file_size: 104857600  # 100MB
+  allowed_extensions: [".html", ".pdf", ".json", ".md", ".txt"]
+  s3:
+    bucket_env: "S3_BUCKET"
+    region_env: "AWS_REGION"
+    access_key_env: "AWS_ACCESS_KEY_ID"
+    secret_key_env: "AWS_SECRET_ACCESS_KEY"
+  gcs:
+    bucket_env: "GCS_BUCKET"
+    credentials_env: "GOOGLE_APPLICATION_CREDENTIALS"
+
+monitoring:
+  metrics_enabled: true
+  metrics_endpoint: "/metrics"
+  health_endpoint: "/health"
+  ready_endpoint: "/ready"
+  trace_enabled: false
+  trace_endpoint_env: "TRACE_ENDPOINT"
+  log_requests: true
+  log_responses: false
+  performance_tracking: true
+
+logging:
+  level: "INFO"
+  format: "json"  # Options: json, text
+  output: "stdout"  # Options: stdout, file, both
+  file_path: "/app/logs/crawl4ai.log"
+  max_file_size: 10485760  # 10MB
+  max_files: 5
+  include_timestamp: true
+  include_hostname: true
+  include_process_info: false
+  structured_logging: true
+  log_sensitive_data: false
+
+webhooks:
+  enabled: false
+  endpoints:
+    success: ""
+    failure: ""
+    progress: ""
+  timeout: 10
+  retry_attempts: 3
+  headers:
+    Content-Type: "application/json"
+    User-Agent: "Crawl4AI-Webhook/1.0"
+
+features:
+  playground_enabled: true
+  swagger_enabled: true
+  graphql_enabled: false
+  websocket_enabled: false
+  sse_enabled: true
+  batch_api_enabled: true
+  async_api_enabled: true
+
+limits:
+  max_crawl_depth: 10
+  max_pages_per_crawl: 1000
+  max_content_size: 52428800  # 50MB
+  max_extraction_size: 10485760  # 10MB
+  max_batch_size: 100
+  max_concurrent_batches: 5
+
+experimental:
+  enable_gpu: false
+  enable_webrtc: false
+  enable_web_audio: false
+  enable_webgl: true
+  enable_wasm: true
+  browser_automation_detection_bypass: false
+
+# Environment-specific overrides
+development:
+  app:
+    reload: true
+  logging:
+    level: "DEBUG"
+  security:
+    enabled: false
+
+production:
+  app:
+    reload: false
+    workers: 8
+  logging:
+    level: "WARNING"
+    output: "file"
+  security:
+    enabled: true
+    https_redirect: true
+
+testing:
+  crawler:
+    default_headless: true
+  logging:
+    level: "DEBUG"
+  rate_limiting:
+    enabled: false

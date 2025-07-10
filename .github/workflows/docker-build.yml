@@ -1,0 +1,370 @@
+name: Build and Push Crawl4AI Docker Image
+
+on:
+  # Trigger on push to main branch
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  
+  # Trigger on pull request
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.gitignore'
+  
+  # Weekly scheduled build to get latest Crawl4AI updates
+  schedule:
+    - cron: '0 2 * * 1'  # Weekly on Monday at 2 AM UTC
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      crawl4ai_branch:
+        description: 'Crawl4AI branch to build from'
+        required: false
+        default: 'main'
+        type: choice
+        options:
+          - main
+          - develop
+          - stable
+      install_type:
+        description: 'Installation type'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - default
+          - all
+          - torch
+          - transformer
+      force_rebuild:
+        description: 'Force rebuild without cache'
+        type: boolean
+        required: false
+        default: false
+      push_to_registry:
+        description: 'Push to Docker Hub'
+        type: boolean
+        required: false
+        default: true
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/crawl4ai
+  PLATFORMS: linux/amd64,linux/arm64
+  CACHE_REGISTRY: ${{ secrets.DOCKER_USERNAME }}/crawl4ai-cache
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      crawl4ai_sha: ${{ steps.check.outputs.crawl4ai_sha }}
+      crawl4ai_version: ${{ steps.check.outputs.crawl4ai_version }}
+      build_date: ${{ steps.check.outputs.build_date }}
+      has_changes: ${{ steps.check.outputs.has_changes }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check for Crawl4AI updates
+      id: check
+      run: |
+        # Get the latest commit SHA from Crawl4AI repository
+        CRAWL4AI_BRANCH="${{ github.event.inputs.crawl4ai_branch || 'main' }}"
+        CRAWL4AI_SHA=$(curl -s https://api.github.com/repos/unclecode/crawl4ai/commits/${CRAWL4AI_BRANCH} | jq -r '.sha')
+        echo "crawl4ai_sha=${CRAWL4AI_SHA}" >> $GITHUB_OUTPUT
+        
+        # Get version from pyproject.toml
+        CRAWL4AI_VERSION=$(curl -s https://raw.githubusercontent.com/unclecode/crawl4ai/${CRAWL4AI_BRANCH}/pyproject.toml | grep -E '^version' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        if [ -z "$CRAWL4AI_VERSION" ]; then
+          CRAWL4AI_VERSION="0.0.0"
+        fi
+        echo "crawl4ai_version=${CRAWL4AI_VERSION}" >> $GITHUB_OUTPUT
+        
+        # Set build date
+        BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+        echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
+        
+        # Check if we should build
+        SHOULD_BUILD="false"
+        
+        # Always build for manual trigger or force rebuild
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ] || [ "${{ github.event.inputs.force_rebuild }}" == "true" ]; then
+          SHOULD_BUILD="true"
+          echo "Building due to manual trigger or force rebuild"
+        # Always build for push or PR
+        elif [ "${{ github.event_name }}" == "push" ] || [ "${{ github.event_name }}" == "pull_request" ]; then
+          SHOULD_BUILD="true"
+          echo "Building due to push or pull request"
+        # For scheduled builds, check if there's a new version
+        elif [ "${{ github.event_name }}" == "schedule" ]; then
+          # Check if we've built this SHA before by querying Docker Hub
+          if command -v jq &> /dev/null; then
+            EXISTING_SHA=$(curl -s "https://hub.docker.com/v2/repositories/${{ secrets.DOCKER_USERNAME }}/crawl4ai/tags/?page_size=100" | \
+              jq -r '.results[] | select(.name | contains("'${CRAWL4AI_SHA:0:7}'")) | .name' | head -1)
+            
+            if [ -z "$EXISTING_SHA" ]; then
+              SHOULD_BUILD="true"
+              echo "New Crawl4AI version detected: ${CRAWL4AI_SHA}"
+            else
+              echo "Crawl4AI SHA ${CRAWL4AI_SHA} already built"
+            fi
+          else
+            # If jq is not available, always build on schedule
+            SHOULD_BUILD="true"
+          fi
+        fi
+        
+        echo "should_build=${SHOULD_BUILD}" >> $GITHUB_OUTPUT
+        
+        # Check for local changes
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_changes=false" >> $GITHUB_OUTPUT
+        fi
+
+  build-and-push:
+    needs: check-updates
+    if: needs.check-updates.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        install_type: 
+          - ${{ github.event.inputs.install_type || 'all' }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: all
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver-opts: |
+          network=host
+          image=moby/buildkit:master
+        buildkitd-flags: --debug
+
+    - name: Log in to Docker Hub
+      if: github.event_name != 'pull_request' && github.event.inputs.push_to_registry != 'false'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.IMAGE_NAME }}
+        flavor: |
+          latest=false
+          suffix=-${{ matrix.install_type }}
+        tags: |
+          # Latest tag for main branch
+          type=raw,value=latest,enable={{is_default_branch}}
+          # Version tags
+          type=raw,value=${{ needs.check-updates.outputs.crawl4ai_version }}
+          type=raw,value=${{ needs.check-updates.outputs.crawl4ai_version }}-${{ needs.check-updates.outputs.crawl4ai_sha }}
+          # Short SHA
+          type=raw,value=${{ needs.check-updates.outputs.crawl4ai_sha }},enable={{is_default_branch}}
+          type=raw,value=sha-${{ needs.check-updates.outputs.crawl4ai_sha }}
+          # Date-based tag
+          type=raw,value={{date 'YYYYMMDD'}}
+          # PR tag
+          type=ref,event=pr
+          # Branch tag
+          type=ref,event=branch
+        labels: |
+          org.opencontainers.image.title=Custom Crawl4AI
+          org.opencontainers.image.description=Custom build of Crawl4AI with latest updates
+          org.opencontainers.image.vendor=${{ github.repository_owner }}
+          org.opencontainers.image.created=${{ needs.check-updates.outputs.build_date }}
+          org.opencontainers.image.revision=${{ github.sha }}
+          crawl4ai.version=${{ needs.check-updates.outputs.crawl4ai_version }}
+          crawl4ai.sha=${{ needs.check-updates.outputs.crawl4ai_sha }}
+          crawl4ai.install_type=${{ matrix.install_type }}
+          crawl4ai.branch=${{ github.event.inputs.crawl4ai_branch || 'main' }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      id: build
+      with:
+        context: .
+        file: ./Dockerfile
+        platforms: ${{ env.PLATFORMS }}
+        push: ${{ github.event_name != 'pull_request' && github.event.inputs.push_to_registry != 'false' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: |
+          INSTALL_TYPE=${{ matrix.install_type }}
+          GITHUB_BRANCH=${{ github.event.inputs.crawl4ai_branch || 'main' }}
+        cache-from: |
+          type=gha
+          type=registry,ref=${{ env.CACHE_REGISTRY }}:buildcache
+        cache-to: |
+          type=gha,mode=max
+          type=registry,ref=${{ env.CACHE_REGISTRY }}:buildcache,mode=max
+        no-cache: ${{ github.event.inputs.force_rebuild == 'true' }}
+        provenance: true
+        sbom: true
+        outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' && github.event.inputs.push_to_registry != 'false' }}
+
+    - name: Export digest
+      if: github.event_name != 'pull_request' && github.event.inputs.push_to_registry != 'false'
+      run: |
+        mkdir -p /tmp/digests
+        digest="${{ steps.build.outputs.digest }}"
+        touch "/tmp/digests/${digest#sha256:}"
+        echo "Digest: $digest"
+
+    - name: Upload digest
+      if: github.event_name != 'pull_request' && github.event.inputs.push_to_registry != 'false'
+      uses: actions/upload-artifact@v4
+      with:
+        name: digests-${{ matrix.install_type }}
+        path: /tmp/digests/*
+        if-no-files-found: error
+        retention-days: 1
+
+  merge-manifests:
+    needs: [check-updates, build-and-push]
+    if: needs.check-updates.outputs.should_build == 'true' && github.event_name != 'pull_request' && github.event.inputs.push_to_registry != 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        install_type: 
+          - ${{ github.event.inputs.install_type || 'all' }}
+    steps:
+    - name: Download digests
+      uses: actions/download-artifact@v4
+      with:
+        name: digests-${{ matrix.install_type }}
+        path: /tmp/digests
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.IMAGE_NAME }}
+        flavor: |
+          latest=false
+          suffix=-${{ matrix.install_type }}
+        tags: |
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=${{ needs.check-updates.outputs.crawl4ai_version }}
+          type=raw,value=sha-${{ needs.check-updates.outputs.crawl4ai_sha }}
+          type=raw,value={{date 'YYYYMMDD'}}
+          type=ref,event=pr
+          type=ref,event=branch
+
+    - name: Create manifest list and push
+      working-directory: /tmp/digests
+      run: |
+        docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+          $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+  test-image:
+    needs: [check-updates, merge-manifests]
+    if: needs.check-updates.outputs.should_build == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        install_type: 
+          - ${{ github.event.inputs.install_type || 'all' }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Test Docker image
+      run: |
+        # Pull the image
+        docker pull ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }}
+        
+        # Run basic tests
+        docker run --rm ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }} python -c "import crawl4ai; print('Crawl4AI imported successfully')"
+        
+        # Test server startup
+        docker run -d --name test-crawl4ai -p 11235:11235 ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }}
+        
+        # Wait for server to be ready
+        echo "Waiting for server to start..."
+        for i in {1..60}; do
+          if curl -f -s http://localhost:11235/health; then
+            echo "Server is ready!"
+            break
+          fi
+          echo "Attempt $i/60..."
+          sleep 2
+        done
+        
+        # Test API endpoint
+        curl -f -s http://localhost:11235/health || exit 1
+        
+        # Cleanup
+        docker stop test-crawl4ai
+        docker rm test-crawl4ai
+
+  notify:
+    needs: [check-updates, build-and-push, merge-manifests, test-image]
+    if: always() && needs.check-updates.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create summary
+      run: |
+        if [ "${{ needs.test-image.result }}" == "success" ]; then
+          echo "## ✅ Build Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Crawl4AI Version:** ${{ needs.check-updates.outputs.crawl4ai_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Crawl4AI SHA:** ${{ needs.check-updates.outputs.crawl4ai_sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Build Date:** ${{ needs.check-updates.outputs.build_date }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🐳 Available Images:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:latest-${{ github.event.inputs.install_type || 'all' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:${{ needs.check-updates.outputs.crawl4ai_version }}-${{ github.event.inputs.install_type || 'all' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:sha-${{ needs.check-updates.outputs.crawl4ai_sha }}-${{ github.event.inputs.install_type || 'all' }}\`" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ❌ Build Failed!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the workflow logs for details." >> $GITHUB_STEP_SUMMARY
+        fi
+
+    - name: Notify via webhook (optional)
+      if: secrets.WEBHOOK_URL != ''
+      run: |
+        # Send notification to webhook if configured
+        curl -X POST ${{ secrets.WEBHOOK_URL }} \
+          -H "Content-Type: application/json" \
+          -d '{
+            "event": "crawl4ai-build",
+            "status": "${{ needs.test-image.result }}",
+            "version": "${{ needs.check-updates.outputs.crawl4ai_version }}",
+            "sha": "${{ needs.check-updates.outputs.crawl4ai_sha }}",
+            "repository": "${{ github.repository }}",
+            "run_id": "${{ github.run_id }}"
+          }'
