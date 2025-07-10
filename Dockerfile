@@ -1,6 +1,6 @@
 # Multi-stage build for optimized Crawl4AI Docker image
 # Stage 1: Dependencies builder
-FROM python:3.11-slim as builder
+FROM python:3.11-slim-bookworm as builder
 
 # Build arguments
 ARG INSTALL_TYPE=all
@@ -47,7 +47,7 @@ RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
     && find /opt/venv -name "*.pyc" -delete 2>/dev/null || true
 
 # Stage 2: Runtime image
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Build arguments
 ARG GITHUB_BRANCH=main
