@@ -142,10 +142,33 @@ jobs:
       fail-fast: false
       matrix:
         install_type: 
-          - ${{ github.event.inputs.install_type || 'all' }}
+          - ${{ github.event.inputs.install_type || 'default' }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+
+    - name: Free up disk space
+      run: |
+        echo "Disk space before cleanup:"
+        df -h
+        
+        # Remove unnecessary tools and files
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+        sudo rm -rf /usr/local/share/boost
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/share/swift
+        
+        # Clean apt cache
+        sudo apt-get clean
+        sudo apt-get autoremove -y
+        
+        # Remove docker images
+        docker image prune -af
+        
+        echo "Disk space after cleanup:"
+        df -h
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@v3
@@ -250,7 +273,7 @@ jobs:
     strategy:
       matrix:
         install_type: 
-          - ${{ github.event.inputs.install_type || 'all' }}
+          - ${{ github.event.inputs.install_type || 'default' }}
     steps:
     - name: Download digests
       uses: actions/download-artifact@v4
@@ -297,7 +320,7 @@ jobs:
     strategy:
       matrix:
         install_type: 
-          - ${{ github.event.inputs.install_type || 'all' }}
+          - ${{ github.event.inputs.install_type || 'default' }}
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -346,9 +369,9 @@ jobs:
           echo "**Build Date:** ${{ needs.check-updates.outputs.build_date }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🐳 Available Images:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_NAME }}:latest-${{ github.event.inputs.install_type || 'all' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_NAME }}:${{ needs.check-updates.outputs.crawl4ai_version }}-${{ github.event.inputs.install_type || 'all' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_NAME }}:sha-${{ needs.check-updates.outputs.crawl4ai_sha }}-${{ github.event.inputs.install_type || 'all' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:latest-${{ github.event.inputs.install_type || 'default' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:${{ needs.check-updates.outputs.crawl4ai_version }}-${{ github.event.inputs.install_type || 'default' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:sha-${{ needs.check-updates.outputs.crawl4ai_sha }}-${{ github.event.inputs.install_type || 'default' }}\`" >> $GITHUB_STEP_SUMMARY
         else
           echo "## ❌ Build Failed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

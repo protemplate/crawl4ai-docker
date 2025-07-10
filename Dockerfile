@@ -24,9 +24,13 @@ WORKDIR /tmp
 RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
     && cd crawl4ai \
     && if [ "$INSTALL_TYPE" = "all" ]; then \
-        pip install --no-cache-dir -e ".[all]"; \
+        # For 'all', install without GPU support to save space
+        pip install --no-cache-dir -e ".[torch]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu; \
     elif [ "$INSTALL_TYPE" = "torch" ]; then \
-        pip install --no-cache-dir -e ".[torch]"; \
+        # CPU-only torch to save space
+        pip install --no-cache-dir -e ".[torch]" \
+            --extra-index-url https://download.pytorch.org/whl/cpu; \
     elif [ "$INSTALL_TYPE" = "transformer" ]; then \
         pip install --no-cache-dir -e ".[transformer]"; \
     else \
@@ -38,7 +42,9 @@ RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
         redis \
         uvicorn[standard] \
         httpx \
-        pydantic-settings
+        pydantic-settings \
+    && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
+    && find /opt/venv -name "*.pyc" -delete 2>/dev/null || true
 
 # Stage 2: Runtime image
 FROM python:3.11-slim
@@ -103,7 +109,10 @@ COPY --from=builder /tmp/crawl4ai ${APP_HOME}
 
 # Install Playwright browsers with proper permissions
 RUN npx --yes playwright@latest install chromium \
-    && npx --yes playwright@latest install-deps chromium
+    && npx --yes playwright@latest install-deps chromium \
+    && rm -rf /root/.npm /root/.cache \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create necessary directories
 RUN mkdir -p ${APP_HOME}/logs \

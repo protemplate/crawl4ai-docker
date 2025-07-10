@@ -1,0 +1,81 @@
+# Lightweight Dockerfile for Crawl4AI - optimized for smaller size
+# This version installs minimal dependencies without ML/AI features
+
+FROM python:3.11-slim
+
+# Build arguments
+ARG GITHUB_REPO=https://github.com/unclecode/crawl4ai.git
+ARG GITHUB_BRANCH=main
+
+# Set environment variables
+ENV APP_HOME=/app
+ENV PYTHONPATH="${APP_HOME}:${PYTHONPATH}"
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install minimal runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    curl \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js for Playwright
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create app directory and user
+RUN useradd -m -u 1000 -s /bin/bash appuser
+WORKDIR ${APP_HOME}
+
+# Clone and install Crawl4AI with minimal dependencies
+RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} . \
+    && pip install --no-cache-dir -e . \
+    && pip install --no-cache-dir \
+        uvicorn[standard] \
+        httpx \
+        pydantic-settings \
+    && find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
+    && find . -name "*.pyc" -delete 2>/dev/null || true \
+    && rm -rf .git
+
+# Install Playwright with only Chromium
+RUN npx --yes playwright@latest install chromium \
+    && npx --yes playwright@latest install-deps chromium \
+    && rm -rf /root/.npm /root/.cache
+
+# Create necessary directories
+RUN mkdir -p logs data cache .crawl4ai
+
+# Copy configuration
+COPY config.yml ${APP_HOME}/config.yml
+
+# Set ownership
+RUN chown -R appuser:appuser ${APP_HOME}
+
+# Create minimal startup script
+RUN echo '#!/bin/bash\n\
+set -e\n\
+echo "Starting Crawl4AI server (lite version)..."\n\
+exec python -m crawl4ai.server\n\
+' > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 11235
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:11235/health || exit 1
+
+# Labels
+LABEL org.opencontainers.image.title="Crawl4AI Lite"
+LABEL org.opencontainers.image.description="Minimal Crawl4AI Docker image without ML features"
+LABEL org.opencontainers.image.url="https://github.com/protemplate/crawl4ai-docker"
+
+# Start the application
+CMD ["/usr/local/bin/start.sh"]
