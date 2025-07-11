@@ -167,6 +167,10 @@ env | grep -E "(PATH|PYTHONPATH|APP_HOME)" | sort\n\
 echo "Checking crawl4ai installation:"\n\
 echo "App directory contents:"\n\
 ls -la ${APP_HOME}/ | head -10\n\
+echo "Crawl4ai package directory:"\n\
+ls -la ${APP_HOME}/crawl4ai/ | head -10\n\
+echo "Deploy/docker directory:"\n\
+ls -la ${APP_HOME}/deploy/docker/ | head -10\n\
 echo "Trying to import crawl4ai:"\n\
 python -c "try: import crawl4ai; print(\"SUCCESS: Crawl4ai imported\"); print(\"Version:\", getattr(crawl4ai, \"__version__\", \"unknown\"))\nexcept Exception as e: print(\"FAILED:\", str(e))"\n\
 echo "Available crawl4ai modules:"\n\
@@ -174,33 +178,37 @@ python -c "try: import crawl4ai, pkgutil; print([name for _, name, _ in pkgutil.
 \n\
 # Start the server\n\
 echo "Starting Crawl4AI server on port 11235..."\n\
+\n\
+# First, let's see what server files are available\n\
+echo "Looking for server files..."\n\
+find ${APP_HOME} -name "*server*.py" -o -name "main.py" -o -name "app.py" | head -10\n\
+\n\
 # Try different ways to start the server\n\
-if python -c "import crawl4ai.server" 2>/dev/null; then\n\
+if [ -f "${APP_HOME}/deploy/docker/main.py" ]; then\n\
+    echo "Found deploy/docker/main.py - using it"\n\
+    cd ${APP_HOME} && python deploy/docker/main.py 2>&1 &\n\
+elif [ -f "${APP_HOME}/deploy/docker/app.py" ]; then\n\
+    echo "Found deploy/docker/app.py - using it"\n\
+    cd ${APP_HOME} && python deploy/docker/app.py 2>&1 &\n\
+elif [ -f "${APP_HOME}/deploy/docker/server.py" ]; then\n\
+    echo "Found deploy/docker/server.py - using it"\n\
+    cd ${APP_HOME} && python deploy/docker/server.py 2>&1 &\n\
+elif python -c "import crawl4ai.server" 2>/dev/null; then\n\
     echo "Using crawl4ai.server module"\n\
     python -m crawl4ai.server 2>&1 &\n\
 elif python -c "import crawl4ai.api_server" 2>/dev/null; then\n\
     echo "Using crawl4ai.api_server module"\n\
     python -m crawl4ai.api_server 2>&1 &\n\
 elif [ -f "${APP_HOME}/crawl4ai/server.py" ]; then\n\
-    echo "Using server.py file directly"\n\
-    cd ${APP_HOME} && python -m crawl4ai.server 2>&1 &\n\
-elif [ -f "${APP_HOME}/deploy/docker/main.py" ]; then\n\
-    echo "Using deploy/docker/main.py"\n\
-    cd ${APP_HOME} && python deploy/docker/main.py 2>&1 &\n\
-elif [ -f "${APP_HOME}/main.py" ]; then\n\
-    echo "Using main.py in APP_HOME"\n\
-    cd ${APP_HOME} && python main.py 2>&1 &\n\
+    echo "Using crawl4ai/server.py file directly"\n\
+    cd ${APP_HOME} && python crawl4ai/server.py 2>&1 &\n\
 elif which crawl4ai-server 2>/dev/null; then\n\
     echo "Using crawl4ai-server command"\n\
     crawl4ai-server 2>&1 &\n\
 else\n\
     echo "ERROR: Could not find a way to start the Crawl4AI server"\n\
-    echo "Directory contents:"\n\
-    ls -la ${APP_HOME}/\n\
-    echo "Crawl4ai module contents:"\n\
-    ls -la ${APP_HOME}/crawl4ai/ 2>/dev/null || echo "No crawl4ai directory"\n\
-    echo "Deploy directory contents:"\n\
-    ls -la ${APP_HOME}/deploy/ 2>/dev/null || echo "No deploy directory"\n\
+    echo "All Python files in deploy/docker:"\n\
+    find ${APP_HOME}/deploy/docker -name "*.py" 2>/dev/null || echo "No Python files found"\n\
     exit 1\n\
 fi\n\
 SERVER_PID=$!\n\
