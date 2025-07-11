@@ -37,7 +37,7 @@ RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
         pip install --no-cache-dir -e .; \
     fi \
     && pip install --no-cache-dir -r /tmp/crawl4ai/deploy/docker/requirements.txt \
-    && pip install --no-cache-dir supervisor \
+    && pip install --no-cache-dir supervisor playwright \
     && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/venv -name "*.pyc" -delete 2>/dev/null || true
 
@@ -113,9 +113,8 @@ RUN if [ -d "${APP_HOME}/deploy/docker/server" ]; then \
         cp ${APP_HOME}/deploy/docker/main.py ${APP_HOME}/crawl4ai/server.py 2>/dev/null || true; \
     fi
 
-# Install Playwright browsers with proper permissions
-RUN npx --yes playwright@latest install chromium \
-    && npx --yes playwright@latest install-deps chromium \
+# Install Playwright dependencies only (browsers will be installed as appuser)
+RUN npx --yes playwright@latest install-deps chromium \
     && rm -rf /root/.npm /root/.cache \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
@@ -137,7 +136,8 @@ RUN chown -R appuser:appuser ${APP_HOME} \
 COPY deploy/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Create Redis data directory with correct permissions
-RUN mkdir -p /var/lib/redis && chown -R appuser:appuser /var/lib/redis
+RUN mkdir -p /var/lib/redis && chown -R appuser:appuser /var/lib/redis \
+    && mkdir -p /home/appuser/.cache && chown -R appuser:appuser /home/appuser
 
 # Create startup script
 RUN echo '#!/bin/bash\n\
@@ -156,6 +156,9 @@ exec /opt/venv/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 
 # Switch to non-root user
 USER appuser
+
+# Install Playwright browsers as appuser
+RUN /opt/venv/bin/playwright install chromium
 
 # Expose port
 EXPOSE 11235
