@@ -169,7 +169,7 @@ python -c "try: import crawl4ai; print(\"SUCCESS: Crawl4ai imported\"); print(\"
 \n\
 # Start supervisord to manage Redis and Gunicorn\n\
 echo "Starting Crawl4AI services with supervisord..."\n\
-exec /usr/local/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
+exec /opt/venv/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 ' > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
 
 # Switch to non-root user
