@@ -6,7 +6,7 @@ FROM python:3.11-slim-bookworm as builder
 ARG INSTALL_TYPE=all
 ARG ENABLE_GPU=false
 ARG GITHUB_REPO=https://github.com/unclecode/crawl4ai.git
-ARG GITHUB_BRANCH=main
+ARG GITHUB_BRANCH=main  # This will be a release tag like v0.6.3, not a branch
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

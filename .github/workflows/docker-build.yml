@@ -79,6 +79,7 @@ jobs:
           echo "Warning: Could not fetch latest release, using default"
           CRAWL4AI_RELEASE="v0.6.3"
         fi
+        echo "Found latest Crawl4AI release: ${CRAWL4AI_RELEASE}"
         
         # Remove 'v' prefix if present for version number
         CRAWL4AI_VERSION="${CRAWL4AI_RELEASE#v}"
@@ -235,6 +236,12 @@ jobs:
           crawl4ai.release=${{ needs.check-updates.outputs.crawl4ai_release }}
           crawl4ai.sha=${{ needs.check-updates.outputs.crawl4ai_sha }}
           crawl4ai.install_type=${{ matrix.install_type }}
+
+    - name: Log build information
+      run: |
+        echo "Building from Crawl4AI release: ${{ needs.check-updates.outputs.crawl4ai_release }}"
+        echo "Docker image version: v${{ needs.check-updates.outputs.crawl4ai_version }}"
+        echo "Git SHA: ${{ needs.check-updates.outputs.crawl4ai_sha }}"
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
