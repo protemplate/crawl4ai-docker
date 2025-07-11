@@ -37,15 +37,25 @@ RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
         pip install --no-cache-dir -e .; \
     fi \
     && pip install --no-cache-dir \
-        gunicorn \
+        gunicorn>=23.0.0 \
         supervisor \
-        redis \
-        uvicorn[standard] \
+        redis>=5.2.1 \
+        uvicorn[standard]>=0.34.2 \
         httpx \
         pydantic-settings \
-        fastapi \
+        fastapi>=0.115.12 \
         python-multipart \
         aiofiles \
+        dnspython>=2.7.0 \
+        slowapi==0.1.9 \
+        prometheus-fastapi-instrumentator>=7.1.0 \
+        PyJWT==2.10.1 \
+        email-validator==2.2.0 \
+        sse-starlette==2.2.1 \
+        rank-bm25==0.2.2 \
+        mcp>=1.6.0 \
+        websockets>=15.0.1 \
+        anyio==4.9.0 \
     && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/venv -name "*.pyc" -delete 2>/dev/null || true
 
@@ -62,8 +72,9 @@ ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install runtime dependencies
+# Install runtime dependencies including Redis server
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    redis-server \
     wget \
     gnupg \
     unzip \
@@ -140,100 +151,25 @@ COPY config.yml ${APP_HOME}/config.yml
 RUN chown -R appuser:appuser ${APP_HOME} \
     && chown -R appuser:appuser /opt/venv
 
+# Copy supervisord configuration
+COPY deploy/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create Redis data directory with correct permissions
+RUN mkdir -p /var/lib/redis && chown -R appuser:appuser /var/lib/redis
+
 # Create startup script
 RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
-# Function to handle shutdown\n\
-shutdown() {\n\
-    echo "Shutting down Crawl4AI server..."\n\
-    kill -SIGTERM "$SERVER_PID" 2>/dev/null || true\n\
-    wait "$SERVER_PID" 2>/dev/null || true\n\
-    exit 0\n\
-}\n\
-\n\
-# Trap signals\n\
-trap shutdown SIGTERM SIGINT\n\
-\n\
 # Debug information\n\
 echo "Python version:"\n\
 python --version\n\
-echo "Installed packages:"\n\
-pip list | grep -iE "(crawl|playwright|uvicorn|fastapi)" || echo "No matching packages found"\n\
-echo "All packages (first 20):"\n\
-pip list | head -20\n\
-echo "Environment variables:"\n\
-env | grep -E "(PATH|PYTHONPATH|APP_HOME)" | sort\n\
 echo "Checking crawl4ai installation:"\n\
-echo "App directory contents:"\n\
-ls -la ${APP_HOME}/ | head -10\n\
-echo "Crawl4ai package directory:"\n\
-ls -la ${APP_HOME}/crawl4ai/ | head -10\n\
-echo "Deploy/docker directory:"\n\
-ls -la ${APP_HOME}/deploy/docker/ | head -10\n\
-echo "Trying to import crawl4ai:"\n\
 python -c "try: import crawl4ai; print(\"SUCCESS: Crawl4ai imported\"); print(\"Version:\", getattr(crawl4ai, \"__version__\", \"unknown\"))\nexcept Exception as e: print(\"FAILED:\", str(e))"\n\
-echo "Available crawl4ai modules:"\n\
-python -c "try: import crawl4ai, pkgutil; print([name for _, name, _ in pkgutil.iter_modules(crawl4ai.__path__)])\nexcept Exception as e: print(\"FAILED:\", str(e))"\n\
 \n\
-# Start the server\n\
-echo "Starting Crawl4AI server on port 11235..."\n\
-\n\
-# First, let's see what server files are available\n\
-echo "Looking for server files..."\n\
-find ${APP_HOME} -name "*server*.py" -o -name "main.py" -o -name "app.py" | head -10\n\
-\n\
-# Try different ways to start the server\n\
-if [ -f "${APP_HOME}/deploy/docker/main.py" ]; then\n\
-    echo "Found deploy/docker/main.py - using it"\n\
-    cd ${APP_HOME} && python deploy/docker/main.py 2>&1 &\n\
-elif [ -f "${APP_HOME}/deploy/docker/app.py" ]; then\n\
-    echo "Found deploy/docker/app.py - using it"\n\
-    cd ${APP_HOME} && python deploy/docker/app.py 2>&1 &\n\
-elif [ -f "${APP_HOME}/deploy/docker/server.py" ]; then\n\
-    echo "Found deploy/docker/server.py - using it"\n\
-    cd ${APP_HOME} && python deploy/docker/server.py 2>&1 &\n\
-elif python -c "import crawl4ai.server" 2>/dev/null; then\n\
-    echo "Using crawl4ai.server module"\n\
-    python -m crawl4ai.server 2>&1 &\n\
-elif python -c "import crawl4ai.api_server" 2>/dev/null; then\n\
-    echo "Using crawl4ai.api_server module"\n\
-    python -m crawl4ai.api_server 2>&1 &\n\
-elif [ -f "${APP_HOME}/crawl4ai/server.py" ]; then\n\
-    echo "Using crawl4ai/server.py file directly"\n\
-    cd ${APP_HOME} && python crawl4ai/server.py 2>&1 &\n\
-elif which crawl4ai-server 2>/dev/null; then\n\
-    echo "Using crawl4ai-server command"\n\
-    crawl4ai-server 2>&1 &\n\
-else\n\
-    echo "ERROR: Could not find a way to start the Crawl4AI server"\n\
-    echo "All Python files in deploy/docker:"\n\
-    find ${APP_HOME}/deploy/docker -name "*.py" 2>/dev/null || echo "No Python files found"\n\
-    exit 1\n\
-fi\n\
-SERVER_PID=$!\n\
-\n\
-# Wait for server to be ready\n\
-echo "Waiting for server to be ready..."\n\
-ATTEMPTS=0\n\
-MAX_ATTEMPTS=120\n\
-while ! curl -f -s http://localhost:11235/health > /dev/null; do\n\
-    ATTEMPTS=$((ATTEMPTS + 1))\n\
-    if [ $ATTEMPTS -ge $MAX_ATTEMPTS ]; then\n\
-        echo "Server failed to start after $MAX_ATTEMPTS attempts"\n\
-        echo "Server process status:"\n\
-        ps aux | grep -E "(python|crawl4ai)" || true\n\
-        exit 1\n\
-    fi\n\
-    if [ $((ATTEMPTS % 10)) -eq 0 ]; then\n\
-        echo "Still waiting... (attempt $ATTEMPTS/$MAX_ATTEMPTS)"\n\
-    fi\n\
-    sleep 1\n\
-done\n\
-echo "Server is ready after $ATTEMPTS seconds!"\n\
-\n\
-# Keep the script running\n\
-wait "$SERVER_PID"\n\
+# Start supervisord to manage Redis and Gunicorn\n\
+echo "Starting Crawl4AI services with supervisord..."\n\
+exec /usr/local/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 ' > /usr/local/bin/start.sh && chmod +x /usr/local/bin/start.sh
 
 # Switch to non-root user

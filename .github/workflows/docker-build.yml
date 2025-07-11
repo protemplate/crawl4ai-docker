@@ -199,7 +199,7 @@ jobs:
         images: ${{ env.IMAGE_NAME }}
         flavor: |
           latest=false
-          suffix=-${{ matrix.install_type }}
+          suffix=${{ matrix.install_type != 'default' && format('-{0}', matrix.install_type) || '' }}
         tags: |
           # Latest tag for main branch
           type=raw,value=latest,enable={{is_default_branch}}
@@ -264,13 +264,13 @@ jobs:
     - name: Test Docker image
       run: |
         # Pull the image
-        docker pull ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }}
+        docker pull ${{ env.IMAGE_NAME }}:latest${{ matrix.install_type != 'default' && format('-{0}', matrix.install_type) || '' }}
         
         # Run basic tests
-        docker run --rm ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }} python -c "import crawl4ai; print('Crawl4AI imported successfully')"
+        docker run --rm ${{ env.IMAGE_NAME }}:latest${{ matrix.install_type != 'default' && format('-{0}', matrix.install_type) || '' }} python -c "import crawl4ai; print('Crawl4AI imported successfully')"
         
         # Test server startup
-        docker run -d --name test-crawl4ai -p 11235:11235 ${{ env.IMAGE_NAME }}:latest-${{ matrix.install_type }}
+        docker run -d --name test-crawl4ai -p 11235:11235 ${{ env.IMAGE_NAME }}:latest${{ matrix.install_type != 'default' && format('-{0}', matrix.install_type) || '' }}
         
         # Get container logs for debugging
         sleep 5
@@ -314,9 +314,14 @@ jobs:
           echo "**Build Date:** ${{ needs.check-updates.outputs.build_date }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🐳 Available Images:" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_NAME }}:latest-${{ github.event.inputs.install_type || 'default' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_NAME }}:${{ needs.check-updates.outputs.crawl4ai_version }}-${{ github.event.inputs.install_type || 'default' }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`${{ env.IMAGE_NAME }}:sha-${{ needs.check-updates.outputs.crawl4ai_sha }}-${{ github.event.inputs.install_type || 'default' }}\`" >> $GITHUB_STEP_SUMMARY
+          INSTALL_TYPE="${{ github.event.inputs.install_type || 'default' }}"
+          SUFFIX=""
+          if [ "$INSTALL_TYPE" != "default" ]; then
+            SUFFIX="-$INSTALL_TYPE"
+          fi
+          echo "- \`${{ env.IMAGE_NAME }}:latest$SUFFIX\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:${{ needs.check-updates.outputs.crawl4ai_version }}$SUFFIX\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ env.IMAGE_NAME }}:sha-${{ needs.check-updates.outputs.crawl4ai_sha }}$SUFFIX\`" >> $GITHUB_STEP_SUMMARY
         else
           echo "## ❌ Build Failed!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
