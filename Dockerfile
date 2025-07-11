@@ -36,26 +36,8 @@ RUN git clone --branch ${GITHUB_BRANCH} --depth 1 ${GITHUB_REPO} crawl4ai \
     else \
         pip install --no-cache-dir -e .; \
     fi \
-    && pip install --no-cache-dir \
-        gunicorn>=23.0.0 \
-        supervisor \
-        redis>=5.2.1 \
-        uvicorn[standard]>=0.34.2 \
-        httpx \
-        pydantic-settings \
-        fastapi>=0.115.12 \
-        python-multipart \
-        aiofiles \
-        dnspython>=2.7.0 \
-        slowapi==0.1.9 \
-        prometheus-fastapi-instrumentator>=7.1.0 \
-        PyJWT==2.10.1 \
-        email-validator==2.2.0 \
-        sse-starlette==2.2.1 \
-        rank-bm25==0.2.2 \
-        mcp>=1.6.0 \
-        websockets>=15.0.1 \
-        anyio==4.9.0 \
+    && pip install --no-cache-dir -r /tmp/crawl4ai/deploy/docker/requirements.txt \
+    && pip install --no-cache-dir supervisor \
     && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
     && find /opt/venv -name "*.pyc" -delete 2>/dev/null || true
 
